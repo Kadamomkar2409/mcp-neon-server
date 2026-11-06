@@ -37,3 +37,23 @@ Thumbs.db
 *.sln
 *.sw?
 
+# Added by nitrostack pack
+src/widgets/node_modules/
+src/widgets/.next/
+src/widgets/out/
+*.swp
+*.swo
+*~
+pids/
+*.pid
+*.seed
+*.pid.lock
+.nyc_output/
+uploads/
+*.tsbuildinfo
+.npm/
+.eslintcache
+*.pem
+*.key
+tokens.json
+.git/

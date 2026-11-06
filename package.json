@@ -27,6 +27,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.1",
     "@neondatabase/serverless": "^0.10.4",
+    "@nitrostack/cli": "^1.1.2",
+    "@nitrostack/core": "^1.1.2",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.39.3",
     "express": "^4.21.2",
@@ -43,4 +45,3 @@
     "vitest": "^3.0.5"
   }
 }
-
