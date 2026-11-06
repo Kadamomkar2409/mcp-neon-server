@@ -9,6 +9,8 @@ import {
   authStorage,
   extractBearerToken,
   verifyToken,
+  signToken,
+  DEFAULT_CHATGPT_USER,
 } from "./middleware/auth.js";
 import { rateLimiter } from "./middleware/rateLimiter.js";
 import { expressErrorHandler } from "./middleware/errorHandler.js";
@@ -51,6 +53,11 @@ export function createApp(): {
         health: "/health",
         mcp: "/mcp",
         info: "/",
+        oauth: {
+          authorize: "/oauth/authorize",
+          token: "/oauth/token",
+          metadata: "/.well-known/oauth-authorization-server",
+        },
       },
       tools: [
         "create_record",
@@ -95,7 +102,58 @@ export function createApp(): {
     }
   });
 
-  // Endpoint 3: /mcp (Streamable HTTP for MCP)
+  // Endpoint 3: OAuth 2.0 Authorization Server Metadata (RFC 8414)
+  app.get("/.well-known/oauth-authorization-server", (req: Request, res: Response) => {
+    const host = req.get("host") || "localhost";
+    const protocol = req.protocol;
+    const baseUrl = `${protocol}://${host}`;
+
+    res.status(200).json({
+      issuer: baseUrl,
+      authorization_endpoint: `${baseUrl}/oauth/authorize`,
+      token_endpoint: `${baseUrl}/oauth/token`,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "client_credentials"],
+      token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic", "none"],
+      scopes_supported: ["mcp"],
+    });
+  });
+
+  // Endpoint 4: OAuth 2.0 Authorize Endpoint
+  app.get("/oauth/authorize", (req: Request, res: Response) => {
+    const redirectUri = req.query.redirect_uri as string;
+    const state = req.query.state as string;
+
+    if (!redirectUri) {
+      res.status(400).send("Missing redirect_uri query parameter");
+      return;
+    }
+
+    // Auto-approve and redirect back with authorization code
+    const authCode = `auth_code_${Date.now()}`;
+    const targetUrl = new URL(redirectUri);
+    targetUrl.searchParams.set("code", authCode);
+    if (state) {
+      targetUrl.searchParams.set("state", state);
+    }
+
+    res.redirect(targetUrl.toString());
+  });
+
+  // Endpoint 5: OAuth 2.0 Token Endpoint
+  app.post("/oauth/token", (req: Request, res: Response) => {
+    // Generate valid JWT token for ChatGPT
+    const token = signToken(DEFAULT_CHATGPT_USER, "30d");
+
+    res.status(200).json({
+      access_token: token,
+      token_type: "Bearer",
+      expires_in: 30 * 24 * 3600,
+      scope: "mcp",
+    });
+  });
+
+  // Endpoint 6: /mcp (Streamable HTTP for MCP)
   app.all("/mcp", async (req: Request, res: Response) => {
     // Check for optional Bearer token in headers to populate request-scoped authStorage
     const token = extractBearerToken(req);

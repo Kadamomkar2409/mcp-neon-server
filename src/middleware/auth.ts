@@ -17,12 +17,18 @@ export interface AuthContext {
 
 export const authStorage = new AsyncLocalStorage<AuthContext>();
 
+export const DEFAULT_CHATGPT_USER: AuthenticatedUser = {
+  userId: "00000000-0000-4000-a000-000000000001",
+  email: "chatgpt@nitrocloud.mcp",
+  name: "ChatGPT User",
+};
+
 /**
  * Signs a JWT access token for a given user payload.
  */
 export function signToken(
   user: AuthenticatedUser,
-  expiresIn: string | number = "7d"
+  expiresIn: string | number = "30d"
 ): string {
   const env = getEnv();
   return jwt.sign(
@@ -97,7 +103,6 @@ export function authMiddleware(
   const token = extractBearerToken(req);
 
   if (!token) {
-    // If request has no Authorization header
     res.status(401).json({
       error: "Unauthorized",
       message: "Missing Bearer token in Authorization header",
@@ -108,7 +113,6 @@ export function authMiddleware(
   try {
     const user = verifyToken(token);
     authStorage.run({ user, token }, () => {
-      // Also attach to request object
       (req as unknown as { auth: AuthContext }).auth = { user, token };
       next();
     });
@@ -124,6 +128,7 @@ export function authMiddleware(
 /**
  * Helper to resolve the authenticated user.
  * Checks AsyncLocalStorage context first; optionally verifies fallback token string.
+ * If neither is provided, allows anonymous fallback for ChatGPT if ALLOW_ANONYMOUS=true.
  */
 export function resolveUser(fallbackToken?: string): AuthenticatedUser {
   const store = authStorage.getStore();
@@ -135,6 +140,9 @@ export function resolveUser(fallbackToken?: string): AuthenticatedUser {
     return verifyToken(fallbackToken);
   }
 
+  if (process.env.ALLOW_ANONYMOUS === "true") {
+    return DEFAULT_CHATGPT_USER;
+  }
+
   throw new Error("Unauthorized: No valid authentication credentials provided");
 }
-
