@@ -55,11 +55,12 @@ describe("MCP Streamable HTTP Integration Tests", () => {
   it("1. GET / returns service information and lists all 8 tools", async () => {
     const res = await fetch(`${baseUrl}/`);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; tools: string[] };
+    const body = (await res.json()) as { status: string; tools: string[]; endpoints: Record<string, unknown> };
     expect(body.status).toBe("RUNNING");
     expect(body.tools.length).toBe(8);
     expect(body.tools).toContain("create_record");
     expect(body.tools).toContain("get_database_stats");
+    expect(body.endpoints.oauth).toBeDefined();
   });
 
   it("2. GET /health checks Neon database connectivity", async () => {
@@ -70,7 +71,7 @@ describe("MCP Streamable HTTP Integration Tests", () => {
     expect(body.database.status).toBe("CONNECTED");
   });
 
-  it("3. POST /mcp initialize request returns server info and protocol version", async () => {
+  it("3. POST /mcp returns 401 with WWW-Authenticate header when unauthenticated", async () => {
     const res = await fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {
@@ -80,6 +81,38 @@ describe("MCP Streamable HTTP Integration Tests", () => {
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "unauth-client", version: "1.0.0" },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(401);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toBeDefined();
+    expect(wwwAuth).toContain("Bearer");
+    expect(wwwAuth).toContain("resource_metadata=");
+    expect(wwwAuth).toContain("/.well-known/oauth-protected-resource");
+
+    const body = (await res.json()) as { error: { code: number; message: string } };
+    expect(body.error.code).toBe(-32000);
+    expect(body.error.message).toContain("Missing Bearer token");
+  });
+
+  it("4. POST /mcp initialize request returns server info and protocol version with Bearer token", async () => {
+    const res = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${validToken}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
         method: "initialize",
         params: {
           protocolVersion: "2024-11-05",
@@ -95,16 +128,17 @@ describe("MCP Streamable HTTP Integration Tests", () => {
     expect(data.result.serverInfo.name).toBe("neon-mcp-server");
   });
 
-  it("4. POST /mcp tools/list returns all 8 registered tools with descriptions", async () => {
+  it("5. POST /mcp tools/list returns all 8 registered tools with descriptions with Bearer token", async () => {
     const res = await fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${validToken}`,
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
-        id: 2,
+        id: 3,
         method: "tools/list",
         params: {},
       }),
@@ -133,7 +167,7 @@ describe("MCP Streamable HTTP Integration Tests", () => {
     );
   });
 
-  it("5. POST /mcp tools/call create_record executes with Bearer token", async () => {
+  it("6. POST /mcp tools/call create_record executes with Bearer token against Neon", async () => {
     const res = await fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {
@@ -143,7 +177,7 @@ describe("MCP Streamable HTTP Integration Tests", () => {
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
-        id: 3,
+        id: 4,
         method: "tools/call",
         params: {
           name: "create_record",
@@ -168,7 +202,7 @@ describe("MCP Streamable HTTP Integration Tests", () => {
     expect(toolResult.record.title).toBe("Integration Test Document via HTTP");
   });
 
-  it("6. POST /mcp rejects request with invalid Bearer token", async () => {
+  it("7. POST /mcp rejects request with invalid Bearer token and returns 401 with WWW-Authenticate", async () => {
     const res = await fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {
@@ -178,7 +212,7 @@ describe("MCP Streamable HTTP Integration Tests", () => {
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
-        id: 4,
+        id: 5,
         method: "tools/call",
         params: {
           name: "get_system_status",
@@ -188,38 +222,12 @@ describe("MCP Streamable HTTP Integration Tests", () => {
     });
 
     expect(res.status).toBe(401);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toBeDefined();
+    expect(wwwAuth).toContain("invalid_token");
+    expect(wwwAuth).toContain("resource_metadata=");
+
     const body = (await res.json()) as { error: { message: string } };
     expect(body.error.message).toContain("Unauthorized");
-  });
-
-  it("7. POST /mcp tools/call rejects unauthorized call when no token provided", async () => {
-    const res = await fetch(`${baseUrl}/mcp`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 5,
-        method: "tools/call",
-        params: {
-          name: "create_record",
-          arguments: {
-            title: "Unauthorized Attempt",
-          },
-        },
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    const text = await res.text();
-    const data = parseMcpResponse(text) as {
-      result: { isError: boolean; content: Array<{ type: string; text: string }> };
-    };
-    expect(data.result.isError).toBe(true);
-    const toolResult = JSON.parse(data.result.content[0].text);
-    expect(toolResult.success).toBe(false);
-    expect(toolResult.error).toContain("Unauthorized");
   });
 });

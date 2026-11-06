@@ -9,9 +9,16 @@ import {
   authStorage,
   extractBearerToken,
   verifyToken,
-  signToken,
-  DEFAULT_CHATGPT_USER,
+  AuthenticatedUser,
 } from "./middleware/auth.js";
+import {
+  getBaseUrl,
+  getProtectedResourceMetadata,
+  getAuthorizationServerMetadata,
+  registerClientHandler,
+  authorizeHandler,
+  tokenHandler,
+} from "./middleware/oauth.js";
 import { rateLimiter } from "./middleware/rateLimiter.js";
 import { expressErrorHandler } from "./middleware/errorHandler.js";
 import type { Server as HttpServer } from "node:http";
@@ -34,6 +41,25 @@ export function createApp(): {
   const env = getEnv();
   const app = express();
 
+  // Trust reverse proxy (e.g. NitroCloud / AWS ALB / Cloudflare)
+  app.set("trust proxy", 1);
+
+  // CORS middleware for web clients and ChatGPT
+  app.use((req: Request, res: Response, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, Accept, X-Requested-With"
+    );
+    res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate");
+    if (req.method === "OPTIONS") {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+
   // Basic middleware
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true }));
@@ -42,7 +68,8 @@ export function createApp(): {
   app.use(rateLimiter({ windowMs: 60 * 1000, maxRequests: 120 }));
 
   // Endpoint 1: Root / (Service Info)
-  app.get("/", (_req: Request, res: Response) => {
+  app.get("/", (req: Request, res: Response) => {
+    const baseUrl = getBaseUrl(req);
     res.status(200).json({
       name: "neon-mcp-server",
       version: "1.0.0",
@@ -54,9 +81,11 @@ export function createApp(): {
         mcp: "/mcp",
         info: "/",
         oauth: {
+          protectedResource: "/.well-known/oauth-protected-resource",
+          authorizationServer: "/.well-known/oauth-authorization-server",
           authorize: "/oauth/authorize",
           token: "/oauth/token",
-          metadata: "/.well-known/oauth-authorization-server",
+          register: "/oauth/register",
         },
       },
       tools: [
@@ -102,79 +131,61 @@ export function createApp(): {
     }
   });
 
-  // Endpoint 3: OAuth 2.0 Authorization Server Metadata (RFC 8414)
-  app.get("/.well-known/oauth-authorization-server", (req: Request, res: Response) => {
-    const host = req.get("host") || "localhost";
-    const protocol = req.protocol;
-    const baseUrl = `${protocol}://${host}`;
+  // Endpoint 3: OAuth 2.0 Protected Resource Metadata (RFC 8707 / MCP Authorization)
+  app.get("/.well-known/oauth-protected-resource", getProtectedResourceMetadata);
 
-    res.status(200).json({
-      issuer: baseUrl,
-      authorization_endpoint: `${baseUrl}/oauth/authorize`,
-      token_endpoint: `${baseUrl}/oauth/token`,
-      response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code", "client_credentials"],
-      token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic", "none"],
-      scopes_supported: ["mcp"],
-    });
-  });
+  // Endpoint 4: OAuth 2.0 Authorization Server Metadata (RFC 8414)
+  app.get("/.well-known/oauth-authorization-server", getAuthorizationServerMetadata);
 
-  // Endpoint 4: OAuth 2.0 Authorize Endpoint
-  app.get("/oauth/authorize", (req: Request, res: Response) => {
-    const redirectUri = req.query.redirect_uri as string;
-    const state = req.query.state as string;
+  // Endpoint 5: OAuth 2.0 Dynamic Client Registration (RFC 7591)
+  app.post("/oauth/register", registerClientHandler);
 
-    if (!redirectUri) {
-      res.status(400).send("Missing redirect_uri query parameter");
+  // Endpoint 6: OAuth 2.0 Authorize Endpoint (Consent & PKCE S256 verification)
+  app.all("/oauth/authorize", authorizeHandler);
+
+  // Endpoint 7: OAuth 2.0 Token Endpoint (Code exchange with PKCE S256 verification & refresh)
+  app.post("/oauth/token", tokenHandler);
+
+  // Endpoint 8: /mcp (Streamable HTTP for MCP)
+  app.all("/mcp", async (req: Request, res: Response) => {
+    const baseUrl = getBaseUrl(req);
+    const token = extractBearerToken(req);
+
+    if (!token) {
+      res.setHeader(
+        "WWW-Authenticate",
+        `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`
+      );
+      res.status(401).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Unauthorized: Missing Bearer token. Please authenticate via OAuth 2.0.",
+        },
+        id: req.body?.id ?? null,
+      });
       return;
     }
 
-    // Auto-approve and redirect back with authorization code
-    const authCode = `auth_code_${Date.now()}`;
-    const targetUrl = new URL(redirectUri);
-    targetUrl.searchParams.set("code", authCode);
-    if (state) {
-      targetUrl.searchParams.set("state", state);
-    }
-
-    res.redirect(targetUrl.toString());
-  });
-
-  // Endpoint 5: OAuth 2.0 Token Endpoint
-  app.post("/oauth/token", (req: Request, res: Response) => {
-    // Generate valid JWT token for ChatGPT
-    const token = signToken(DEFAULT_CHATGPT_USER, "30d");
-
-    res.status(200).json({
-      access_token: token,
-      token_type: "Bearer",
-      expires_in: 30 * 24 * 3600,
-      scope: "mcp",
-    });
-  });
-
-  // Endpoint 6: /mcp (Streamable HTTP for MCP)
-  app.all("/mcp", async (req: Request, res: Response) => {
-    // Check for optional Bearer token in headers to populate request-scoped authStorage
-    const token = extractBearerToken(req);
-    let userContext: { user: { userId: string; email: string; name?: string }; token: string } | undefined;
-
-    if (token) {
-      try {
-        const user = verifyToken(token);
-        userContext = { user, token };
-      } catch (tokenErr) {
-        logger.warn("Request to /mcp with invalid Bearer token", { error: tokenErr });
-        res.status(401).json({
-          jsonrpc: "2.0",
-          error: {
-            code: -32000,
-            message: "Unauthorized: Invalid or expired Bearer token",
-          },
-          id: req.body?.id ?? null,
-        });
-        return;
-      }
+    let userContext: { user: AuthenticatedUser; token: string };
+    try {
+      const user = verifyToken(token);
+      userContext = { user, token };
+    } catch (tokenErr) {
+      logger.warn("Request to /mcp with invalid Bearer token", { error: tokenErr });
+      res.setHeader(
+        "WWW-Authenticate",
+        `Bearer error="invalid_token", error_description="The access token expired or is invalid", resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`
+      );
+      res.status(401).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Unauthorized: Invalid or expired Bearer token",
+        },
+        id: req.body?.id ?? null,
+      });
+      return;
     }
 
     const serverInstance = createMcpServerInstance();
@@ -185,13 +196,9 @@ export function createApp(): {
 
     await serverInstance.connect(transport);
 
-    if (userContext) {
-      await authStorage.run(userContext, async () => {
-        await transport.handleRequest(req, res, req.body);
-      });
-    } else {
+    await authStorage.run(userContext, async () => {
       await transport.handleRequest(req, res, req.body);
-    }
+    });
   });
 
   // Error handling middleware

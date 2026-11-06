@@ -29,6 +29,11 @@ const envSchema = z.object({
   AUTH_SECRET: z
     .string({ required_error: "AUTH_SECRET is required" })
     .min(16, "AUTH_SECRET must be at least 16 characters long"),
+  PUBLIC_BASE_URL: z
+    .string()
+    .url("PUBLIC_BASE_URL must be a valid URL")
+    .optional()
+    .transform((url) => (url ? url.replace(/\/+$/, "") : undefined)),
   LOG_LEVEL: z
     .enum(["debug", "info", "warn", "error"])
     .default("info"),
