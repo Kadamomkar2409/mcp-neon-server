@@ -1,92 +1,95 @@
 # NitroCloud Deployment Guide
 
-This guide details the end-to-end deployment workflow for the MCP Server on **NitroCloud** (via NitroStack).
+This guide details the end-to-end deployment workflow for the Model Context Protocol (MCP) server on **NitroCloud** (via the NitroStack SDK).
 
 ---
 
-## 1. NitroCloud Deployment Options
+## Live Production Deployment
 
-NitroCloud supports two primary deployment workflows:
+- **Public Base URL**: `https://mcp-neon-server-6aede6e3-omkars-org-335cfd22.app.nitrocloud.ai`
+- **MCP Endpoint**: `https://mcp-neon-server-6aede6e3-omkars-org-335cfd22.app.nitrocloud.ai/mcp`
+- **Health Check Endpoint**: `https://mcp-neon-server-6aede6e3-omkars-org-335cfd22.app.nitrocloud.ai/health`
+- **OAuth Protected Resource Metadata**: `https://mcp-neon-server-6aede6e3-omkars-org-335cfd22.app.nitrocloud.ai/.well-known/oauth-protected-resource`
+- **OAuth Authorization Server Metadata**: `https://mcp-neon-server-6aede6e3-omkars-org-335cfd22.app.nitrocloud.ai/.well-known/oauth-authorization-server`
+
+---
+
+## 1. Deployment Workflow Options
+
+NitroCloud supports two deployment workflows:
 
 ### Option A: GitHub Continuous Deployment (Recommended)
-1. In your **NitroCloud Dashboard** ([nitrostack.ai/studio](https://nitrostack.ai/studio) or your NitroCloud organization console):
-2. Click **New Deployment** / **New Service**.
-3. Select **GitHub** and connect your repository:
-   - Repository: `https://github.com/Kadamomkar2409/mcp-neon-server`
-   - Branch: `main`
-   - Build Command: `npm run build`
-   - Start Command: `npm start`
-4. Set the **Environment Variables / Secrets** (detailed below).
-5. Click **Deploy**.
+1. Push your repository to GitHub:
+   ```bash
+   git push origin main
+   ```
+2. In your **NitroCloud Dashboard** ([nitrostack.ai/studio](https://nitrostack.ai/studio) or organization dashboard):
+   - Select **New Deployment** / **New Service**.
+   - Choose **GitHub Repository**: `https://github.com/Kadamomkar2409/mcp-neon-server`.
+   - Branch: `main`.
+   - Build Command: `npm run build` (`nitrostack-cli build`).
+   - Start Command: `npm start` (`nitrostack-cli start`).
+3. Set the Environment Variables listed in Section 2.
+4. Click **Deploy**.
 
 ### Option B: NitroStack Pack Archive Upload
-1. Create the deployment package:
+1. Generate the deployment archive locally:
    ```bash
    npx @nitrostack/cli pack
    ```
-2. This generates `mcp-server.zip` in your project root, strictly excluding `.env`, `.git/`, and dev caches.
-3. In the NitroCloud dashboard, choose **Upload Archive / Pack**, select `mcp-server.zip`, set the environment variables, and deploy.
+   This generates `mcp-server.zip` in your project root, automatically omitting `.env`, `.git/`, test artifacts, and dev caches.
+2. In the NitroCloud dashboard, choose **Upload Pack Archive**, select `mcp-server.zip`, set your environment variables, and deploy.
 
 ---
 
-## 2. Secrets to Configure in NitroCloud
+## 2. Environment Variables & Secrets in NitroCloud
 
-Set the following environment variables in the NitroCloud settings:
+Set the following variables in the NitroCloud service configuration:
 
-| Variable Name | Required | Description | Example / Recommended Value |
-|---|---|---|---|
-| `DATABASE_URL` | **Yes** | Neon PostgreSQL pooled connection string | `postgresql://user:password@ep-xxxx-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require` |
-| `AUTH_SECRET` | **Yes** | Secret HMAC key used to sign and verify JWT access tokens (min 16 chars) | A strong 32+ character random secret string |
-| `NODE_ENV` | **Yes** | Server environment | `production` |
-| `PORT` | **Yes** | HTTP listening port (or dynamically provided by NitroCloud) | `3000` |
-| `MCP_TRANSPORT` | **Yes** | Protocol transport mode | `streamable-http` |
-| `LOG_LEVEL` | No | Logging verbosity | `info` |
+| Variable Name | Required | Description | Value / Format |
+|---|:---:|---|---|
+| `DATABASE_URL` | **Yes** | Pooled Neon PostgreSQL connection URL | `postgresql://<user>:<password>@ep-<branch>-pooler.<region>.aws.neon.tech/<dbname>?sslmode=require` |
+| `AUTH_SECRET` | **Yes** | 32+ character HMAC secret for JWT signing | Strong random string (e.g. 64-char hex) |
+| `PUBLIC_BASE_URL` | **Yes** | Public HTTPS domain for OAuth discovery & callbacks | `https://mcp-neon-server-6aede6e3-omkars-org-335cfd22.app.nitrocloud.ai` |
+| `NODE_ENV` | **Yes** | Environment mode | `production` |
+| `PORT` | **Yes** | Container listening port | `3000` |
+| `MCP_TRANSPORT` | **Yes** | Transport protocol | `streamable-http` |
+| `LOG_LEVEL` | No | Log verbosity | `info` |
+
+> [!IMPORTANT]
+> The `PUBLIC_BASE_URL` environment variable is critical: because NitroCloud operates behind a reverse proxy that terminates TLS, setting this variable guarantees that all OAuth metadata and redirect URLs use `https://`.
 
 ---
 
 ## 3. Post-Deployment Verification
 
-Once deployed to NitroCloud, your service will have a public HTTPS URL (e.g. `https://<your-app>.nitrocloud.app` or custom domain).
-
-### 1. Verify Health Endpoint
+Run the automated live verification script against the deployment:
 ```bash
-curl -i https://<your-nitrocloud-url>/health
-```
-**Expected Response** (`200 OK`):
-```json
-{
-  "status": "OK",
-  "uptimeSeconds": 15,
-  "database": {
-    "status": "CONNECTED",
-    "latencyMs": 42
-  }
-}
+npx tsx scripts/verifyLive.ts
 ```
 
-### 2. Verify Service Info Endpoint
-```bash
-curl -i https://<your-nitrocloud-url>/
-```
-**Expected Response** (`200 OK`):
-Lists all 8 MCP tools, status `RUNNING`, transport `streamable-http`.
+This automated test checks:
+1. `GET /.well-known/oauth-protected-resource`: Verifies RFC 8707 metadata and HTTPS scheme.
+2. `GET /.well-known/oauth-authorization-server`: Verifies RFC 8414 metadata and PKCE S256 advertisement.
+3. `POST /mcp` without token: Confirms `401 Unauthorized` with `WWW-Authenticate: Bearer resource_metadata="..."`.
+4. `POST /oauth/register`: Tests dynamic client registration (RFC 7591).
+5. `GET /oauth/authorize` & `POST /oauth/token`: Executes the full PKCE S256 authorization flow and retrieves a Bearer access token.
+6. `POST /mcp`: Executes `initialize`, `tools/list`, `get_system_status`, `create_record`, `get_record`, `update_record`, `search_records`, and `delete_record` against Neon PostgreSQL.
+7. Validation & Error Handling: Confirms Zod empty title rejection (`-32602`) and invalid token rejection (`401`).
+8. Cleanup: Guarantees all created test records are deleted from Neon.
 
-### 3. Verify MCP Protocol Handshake (`/mcp`)
-```bash
-curl -i -X POST https://<your-nitrocloud-url>/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "initialize",
-    "params": {
-      "protocolVersion": "2024-11-05",
-      "capabilities": {},
-      "clientInfo": { "name": "verification-client", "version": "1.0.0" }
-    }
-  }'
-```
-**Expected Response** (`200 OK`):
-Returns `serverInfo: { "name": "neon-mcp-server", "version": "1.0.0" }` and protocol capabilities.
+---
 
+## 4. Troubleshooting NitroCloud Deployments
+
+### Issue: "Build Required - Run npm run build first" on container start
+- **Cause**: `nitrostack start` specifically expects `dist/index.js`.
+- **Solution**: Ensure `src/index.ts` is compiled by `nitrostack-cli build` to `dist/index.js` and that `package.json` specifies `"main": "dist/index.js"`. This is already configured in the repo.
+
+### Issue: OAuth URLs return `http://`
+- **Cause**: Reverse proxy headers (`X-Forwarded-Proto`) were not detected or `PUBLIC_BASE_URL` was missing.
+- **Solution**: Set `PUBLIC_BASE_URL=https://mcp-neon-server-6aede6e3-omkars-org-335cfd22.app.nitrocloud.ai` in NitroCloud.
+
+### Issue: Database connection timeout upon cold start
+- **Cause**: Neon compute auto-suspension.
+- **Solution**: The health check endpoint (`/health`) includes a 5000ms timeout guard, allowing Neon compute 1–2 seconds to wake up.

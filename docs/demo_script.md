@@ -1,124 +1,137 @@
-# End-to-End Live Demonstration Script
+# End-to-End Live Demonstration Script (PRD Section 14)
 
-This demo script guides you through proving that **ChatGPT -> NitroCloud MCP Server -> Neon PostgreSQL** works end to end with zero mocks.
-
----
-
-## Prerequisites Checklist
-
-- [x] Neon database migrations applied (`users`, `records`, `audit_logs`).
-- [x] MCP server deployed to NitroCloud (or running with public HTTPS URL).
-- [x] JWT access token generated via `npm run token`.
-- [x] ChatGPT connector configured with the `/mcp` endpoint and Bearer token.
+This script is designed for a live walkthrough demonstrating that the **ChatGPT -> NitroCloud MCP Server -> Neon PostgreSQL** stack functions end-to-end with real database persistence, strict authorization, and zero mock data.
 
 ---
 
-## Live Demonstration Steps
-
-### Step 1: Health Check Verification
-**Action**: Probe `/health` to verify live Neon database connectivity.
-```bash
-curl -i https://<your-nitrocloud-app>.nitrocloud.app/health
-```
-**Expected Response**:
-```json
-{
-  "status": "OK",
-  "uptimeSeconds": 120,
-  "database": {
-    "status": "CONNECTED",
-    "latencyMs": 45
-  }
-}
-```
+## Prerequisites
+1. Server is deployed and running on NitroCloud: `https://mcp-neon-server-6aede6e3-omkars-org-335cfd22.app.nitrocloud.ai`.
+2. Database migrations are applied on Neon PostgreSQL.
+3. Connector is configured in ChatGPT with OAuth 2.0 PKCE or Bearer token.
+4. Have the **Neon Console SQL Editor** open in a separate browser tab to verify immediate SQL changes.
 
 ---
 
-### Step 2: ChatGPT Tool Discovery Handshake
-**ChatGPT Conversation Prompt**:
-> "What database tools do you have connected?"
+## Demonstration Script
 
-**Expected Result**:
-ChatGPT lists all 8 tools:
-1. `create_record`
-2. `get_record`
-3. `list_records`
-4. `update_record`
-5. `delete_record`
-6. `search_records`
-7. `get_database_stats`
-8. `get_system_status`
+### Step 1: Prove System Health & Connectivity
+**ChatGPT Prompt**:
+> "Check the current MCP system status and database health."
+
+**Expected Output**:
+- ChatGPT invokes `get_system_status`.
+- Shows `status: "OK"`, `transport: "streamable-http"`, and `database.status: "CONNECTED"` with real-time latency in milliseconds.
+- Proves the MCP server is live on NitroCloud and communicating with Neon PostgreSQL.
 
 ---
 
-### Step 3: Create Record and Verify in Neon
-**ChatGPT Conversation Prompt**:
-> "Create a record with title 'Production Deployment Validation' and description 'Validating Neon DB integration from ChatGPT' with metadata { 'environment': 'production', 'status': 'validating' }."
+### Step 2: Tool Discovery
+**ChatGPT Prompt**:
+> "What database tools do you have available? List their names and brief descriptions."
 
-**Expected Result in ChatGPT**:
-ChatGPT executes `create_record` and displays:
-```json
-{
-  "success": true,
-  "message": "Record created successfully.",
-  "record": {
-    "id": "e4f8d2...-uuid",
-    "title": "Production Deployment Validation",
-    "createdAt": "2026-11-06T..."
-  }
-}
-```
+**Expected Output**:
+- ChatGPT lists all 8 tools: `create_record`, `get_record`, `list_records`, `update_record`, `delete_record`, `search_records`, `get_database_stats`, `get_system_status`.
+- Explains when each tool should be used.
 
-**Direct Neon SQL Verification (Optional)**:
-Run in Neon SQL Console to confirm immediate persistence:
+---
+
+### Step 3: Create Record & Verify in Neon
+**ChatGPT Prompt**:
+> "Create a new record with the title 'Demonstration Audit Record', description 'Created during the PRD Section 14 live demo walkthrough', and metadata { 'demo': true, 'reviewer': 'Evaluator', 'priority': 'high' }."
+
+**Expected Output in ChatGPT**:
+- ChatGPT invokes `create_record`.
+- Returns confirmation with the newly generated record UUID (e.g. `d7a8b9c0-1111-2222-3333-444455556666`) and `createdAt` timestamp.
+- **Copy this UUID for the next steps.**
+
+**Direct SQL Verification in Neon Console**:
 ```sql
-SELECT id, title, description, metadata, created_at FROM records WHERE title = 'Production Deployment Validation';
+SELECT id, title, description, metadata, created_at 
+FROM records 
+WHERE title = 'Demonstration Audit Record';
 ```
-*(Row exists in Neon PostgreSQL).*
+*(Verify row exists immediately in the database with the exact fields provided).*
 
 ---
 
 ### Step 4: Retrieve and Update Record
-**ChatGPT Conversation Prompt**:
-> "Update the record you just created. Set the description to 'Validation completed with 100% test pass rate', and set metadata status to 'verified'."
+**ChatGPT Prompt**:
+> "Update the record with ID '<paste-UUID>': change the title to 'Demonstration Audit Record (Verified)', update description to 'Live update confirmed in Neon PostgreSQL', and add 'status': 'completed' in the metadata."
 
-**Expected Result in ChatGPT**:
-ChatGPT invokes `update_record`, and returns updated record data with refreshed `updated_at`.
+**Expected Output in ChatGPT**:
+- ChatGPT invokes `update_record`.
+- Returns the updated record showing the modified title, description, and refreshed `updatedAt` timestamp.
+
+**Direct SQL Verification in Neon Console**:
+```sql
+SELECT title, description, metadata, updated_at 
+FROM records 
+WHERE id = '<paste-UUID>';
+```
+*(Verify title and description updated and updated_at > created_at).*
 
 ---
 
 ### Step 5: Search Records
-**ChatGPT Conversation Prompt**:
-> "Search my records for 'Validation'."
+**ChatGPT Prompt**:
+> "Search my records for the keyword 'confirmed'."
 
-**Expected Result in ChatGPT**:
-ChatGPT invokes `search_records` and returns the matching record.
-
----
-
-### Step 6: Authorization & Multi-Tenancy Boundary Enforcement
-**ChatGPT Conversation Prompt**:
-> "Try to retrieve record ID '11111111-2222-3333-4444-555555555555' which belongs to another user."
-
-**Expected Result in ChatGPT**:
-The service layer rejects the request with `403 Forbidden` / `Not Found`. ChatGPT explains that you are not authorized to view records you do not own.
+**Expected Output in ChatGPT**:
+- ChatGPT invokes `search_records`.
+- Finds and displays the updated record matching the keyword query.
 
 ---
 
-### Step 7: Delete Record and Confirm Cleanup
-**ChatGPT Conversation Prompt**:
-> "Delete the record we created, and then try to get it again."
+### Step 6: Multi-Tenancy & Authorization Boundary
+**ChatGPT Prompt**:
+> "Try to retrieve record ID '00000000-0000-0000-0000-000000000000' or view another user's records."
 
-**Expected Result in ChatGPT**:
-1. ChatGPT calls `delete_record` and reports `success: true`.
-2. ChatGPT calls `get_record` and reports that the record was not found.
+**Expected Output in ChatGPT**:
+- The service layer enforces user ownership and rejects cross-tenant access.
+- ChatGPT safely reports that the record was not found or access is forbidden, with zero internal stack traces or leaked records.
 
 ---
 
-### Step 8: Verify Audit Trail
-**Direct Neon SQL Verification**:
+### Step 7: Input Validation Error Handling
+**ChatGPT Prompt**:
+> "Call create_record with an empty title."
+
+**Expected Output in ChatGPT**:
+- The server's Zod schema intercepts the request and returns MCP error code `-32602`.
+- ChatGPT reports: *"Title must not be empty"*.
+
+---
+
+### Step 8: Delete Record & Confirm Deletion
+**ChatGPT Prompt**:
+> "Permanently delete the record with ID '<paste-UUID>', then try to get it again."
+
+**Expected Output in ChatGPT**:
+1. ChatGPT calls `delete_record`. Server returns `{ success: true, deletedRecordId: "..." }`.
+2. ChatGPT calls `get_record` on the same ID. Server returns 404 / record not found.
+3. ChatGPT confirms the record is permanently deleted.
+
+**Direct SQL Verification in Neon Console**:
 ```sql
-SELECT tool_name, action, status, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 10;
+SELECT * FROM records WHERE id = '<paste-UUID>';
 ```
-*(Shows a complete immutable audit trail of `create_record`, `update_record`, `search_records`, and `delete_record` logged directly into Neon).*
+*(Returns 0 rows).*
 
+---
+
+### Step 9: Verify Real Audit Log Trail
+**Direct SQL Verification in Neon Console**:
+```sql
+SELECT tool_name, action, status, created_at 
+FROM audit_logs 
+ORDER BY created_at DESC 
+LIMIT 6;
+```
+**Expected Result**:
+Shows consecutive audit entries created during the demonstration:
+- `delete_record` | `DELETE` | `SUCCESS`
+- `create_record` | `CREATE` | `FAILURE` (or validation error)
+- `search_records` | `SEARCH` | `SUCCESS`
+- `update_record` | `UPDATE` | `SUCCESS`
+- `create_record` | `CREATE` | `SUCCESS`
+- `get_system_status` | `SYSTEM_STATUS` | `SUCCESS`

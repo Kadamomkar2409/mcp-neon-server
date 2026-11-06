@@ -84,3 +84,4 @@ SELECT 'Remaining audit logs' AS category, count(*) FROM audit_logs;
 -- Commit the transaction to apply changes:
 COMMIT;
 -- (Replace COMMIT with ROLLBACK if you ever want to cancel without deleting)
+
