@@ -2,18 +2,21 @@
   "name": "mcp-server",
   "version": "1.0.0",
   "description": "Production-ready Model Context Protocol (MCP) server for NitroCloud and ChatGPT",
-  "main": "dist/server.js",
+  "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/server.js",
-    "dev": "tsx watch src/server.ts",
+    "build": "nitrostack-cli build",
+    "start": "nitrostack-cli start",
+    "start:prod": "nitrostack-cli start",
+    "start:node": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:push": "drizzle-kit push",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "token": "tsx scripts/generateToken.ts"
   },
   "keywords": [
     "mcp",

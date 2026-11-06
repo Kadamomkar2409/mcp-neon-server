@@ -89,3 +89,4 @@ curl -i -X POST https://<your-nitrocloud-url>/mcp \
 ```
 **Expected Response** (`200 OK`):
 Returns `serverInfo: { "name": "neon-mcp-server", "version": "1.0.0" }` and protocol capabilities.
+

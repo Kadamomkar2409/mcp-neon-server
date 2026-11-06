@@ -26,6 +26,11 @@ yarn-error.log*
 # Test coverage
 coverage/
 
+# Archives
+*.zip
+*.tar.gz
+*.tgz
+
 # OS and Editor files
 .DS_Store
 Thumbs.db
