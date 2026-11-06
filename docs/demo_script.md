@@ -121,3 +121,4 @@ The service layer rejects the request with `403 Forbidden` / `Not Found`. ChatGP
 SELECT tool_name, action, status, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 10;
 ```
 *(Shows a complete immutable audit trail of `create_record`, `update_record`, `search_records`, and `delete_record` logged directly into Neon).*
+

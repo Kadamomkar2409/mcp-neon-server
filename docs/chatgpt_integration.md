@@ -133,3 +133,4 @@ The service layer returns `Forbidden` or `Not Found`. Cross-tenant data leak is 
 2. In ChatGPT: "Check system status."
 3. **Expected Result**: ChatGPT gracefully reports degraded or unreachable database status with safe error messaging without crashing.
 4. Unpause Neon and ask ChatGPT to retry: it automatically reconnects and resumes normal operation.
+
