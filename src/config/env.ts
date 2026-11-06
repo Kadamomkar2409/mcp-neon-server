@@ -23,6 +23,13 @@ const envSchema = z.object({
       (url) => url.startsWith("postgresql://") || url.startsWith("postgres://"),
       "DATABASE_URL must be a valid PostgreSQL connection string"
     ),
+  TEST_DATABASE_URL: z
+    .string()
+    .refine(
+      (url) => url.startsWith("postgresql://") || url.startsWith("postgres://"),
+      "TEST_DATABASE_URL must be a valid PostgreSQL connection string"
+    )
+    .optional(),
   MCP_TRANSPORT: z
     .enum(["streamable-http", "sse"])
     .default("streamable-http"),

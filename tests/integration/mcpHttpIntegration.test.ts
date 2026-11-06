@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createApp } from "../../src/server.js";
 import { signToken, AuthenticatedUser } from "../../src/middleware/auth.js";
+import { getDbClient } from "../../src/db/index.js";
+import { users, records, auditLogs } from "../../src/db/schema.js";
+import { eq } from "drizzle-orm";
 import { Server as HttpServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
@@ -47,6 +50,15 @@ describe("MCP Streamable HTTP Integration Tests", () => {
   });
 
   afterAll(async () => {
+    try {
+      const db = getDbClient();
+      await db.delete(auditLogs).where(eq(auditLogs.userId, testUser.userId));
+      await db.delete(records).where(eq(records.userId, testUser.userId));
+      await db.delete(users).where(eq(users.id, testUser.userId));
+    } catch (cleanupErr) {
+      console.warn("Cleanup warning in mcpHttpIntegration.test.ts:", cleanupErr);
+    }
+
     if (server) {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }

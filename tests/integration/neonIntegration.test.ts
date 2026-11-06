@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { recordService } from "../../src/services/recordService.js";
 import { auditService } from "../../src/services/auditService.js";
 import { statsService } from "../../src/services/statsService.js";
 import { systemService } from "../../src/services/systemService.js";
-import { checkDatabaseHealth } from "../../src/db/index.js";
+import { checkDatabaseHealth, getDbClient } from "../../src/db/index.js";
+import { users, records, auditLogs } from "../../src/db/schema.js";
+import { eq, inArray, or } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 
@@ -165,6 +167,33 @@ describe("Neon PostgreSQL Integration Tests", () => {
         recordId: createdRecordId,
       })
     ).rejects.toThrow("was not found");
+  });
+
+  afterAll(async () => {
+    try {
+      const db = getDbClient();
+      // 1. Delete audit logs for test users or test tool
+      await db
+        .delete(auditLogs)
+        .where(
+          or(
+            inArray(auditLogs.userId, [userA.userId, userB.userId]),
+            eq(auditLogs.toolName, "test_tool")
+          )
+        );
+
+      // 2. Delete test records
+      await db
+        .delete(records)
+        .where(inArray(records.userId, [userA.userId, userB.userId]));
+
+      // 3. Delete test users
+      await db
+        .delete(users)
+        .where(inArray(users.id, [userA.userId, userB.userId]));
+    } catch (cleanupErr) {
+      console.warn("Cleanup warning in neonIntegration.test.ts:", cleanupErr);
+    }
   });
 });
 

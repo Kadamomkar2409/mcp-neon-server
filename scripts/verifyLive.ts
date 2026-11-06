@@ -219,90 +219,113 @@ async function runLiveVerification() {
   console.log("Status:", sysRes.status);
   console.log("Response:", JSON.stringify(sysRes.data, null, 2));
 
-  console.log("\n[6.4] MCP tools/call create_record in Neon...");
-  const createRes = await postMcp(
-    {
-      jsonrpc: "2.0",
-      id: 5,
-      method: "tools/call",
-      params: {
-        name: "create_record",
-        arguments: {
-          title: "OAuth Verified Document",
-          description: "Created via OAuth 2.0 PKCE flow on NitroCloud",
-          metadata: { authMode: "oauth2_pkce", timestamp: Date.now() },
-        },
-      },
-    },
-    oauthAccessToken
-  );
-  console.log("Status:", createRes.status);
-  const createText = (createRes.data as any)?.result?.content?.[0]?.text;
+  // Run record CRUD with guaranteed cleanup in try/finally
   let recordId: string | undefined;
-  if (createText) {
-    const parsed = JSON.parse(createText);
-    recordId = parsed?.record?.id;
-    console.log("Created Record ID:", recordId);
-  }
-
-  if (recordId) {
-    console.log(`\n[6.5] MCP tools/call get_record for ${recordId}...`);
-    const getRes = await postMcp(
+  let recordDeleted = false;
+  try {
+    console.log("\n[6.4] MCP tools/call create_record in Neon...");
+    const createRes = await postMcp(
       {
         jsonrpc: "2.0",
-        id: 6,
-        method: "tools/call",
-        params: { name: "get_record", arguments: { recordId } },
-      },
-      oauthAccessToken
-    );
-    console.log("Status:", getRes.status);
-
-    console.log(`\n[6.6] MCP tools/call update_record for ${recordId}...`);
-    const updateRes = await postMcp(
-      {
-        jsonrpc: "2.0",
-        id: 7,
+        id: 5,
         method: "tools/call",
         params: {
-          name: "update_record",
+          name: "create_record",
           arguments: {
-            recordId,
-            title: "OAuth Verified Document (Updated)",
-            description: "Updated successfully over OAuth-authenticated MCP connection",
+            title: "OAuth Verified Document",
+            description: "Created via OAuth 2.0 PKCE flow on NitroCloud",
+            metadata: { authMode: "oauth2_pkce", timestamp: Date.now() },
           },
         },
       },
       oauthAccessToken
     );
-    console.log("Status:", updateRes.status);
+    console.log("Status:", createRes.status);
+    const createText = (createRes.data as any)?.result?.content?.[0]?.text;
+    if (createText) {
+      const parsed = JSON.parse(createText);
+      recordId = parsed?.record?.id;
+      console.log("Created Record ID:", recordId);
+    }
 
-    console.log(`\n[6.7] MCP tools/call search_records for 'Verified'...`);
-    const searchRes = await postMcp(
-      {
-        jsonrpc: "2.0",
-        id: 8,
-        method: "tools/call",
-        params: {
-          name: "search_records",
-          arguments: { query: "Verified" },
+    if (recordId) {
+      console.log(`\n[6.5] MCP tools/call get_record for ${recordId}...`);
+      const getRes = await postMcp(
+        {
+          jsonrpc: "2.0",
+          id: 6,
+          method: "tools/call",
+          params: { name: "get_record", arguments: { recordId } },
         },
-      },
-      oauthAccessToken
-    );
-    console.log("Status:", searchRes.status);
+        oauthAccessToken
+      );
+      console.log("Status:", getRes.status);
 
-    console.log(`\n[6.8] MCP tools/call delete_record for ${recordId}...`);
-    const delRes = await postMcp(
-      {
-        jsonrpc: "2.0",
-        id: 9,
-        method: "tools/call",
-        params: { name: "delete_record", arguments: { recordId } },
-      },
-      oauthAccessToken
-    );
-    console.log("Status:", delRes.status);
+      console.log(`\n[6.6] MCP tools/call update_record for ${recordId}...`);
+      const updateRes = await postMcp(
+        {
+          jsonrpc: "2.0",
+          id: 7,
+          method: "tools/call",
+          params: {
+            name: "update_record",
+            arguments: {
+              recordId,
+              title: "OAuth Verified Document (Updated)",
+              description: "Updated successfully over OAuth-authenticated MCP connection",
+            },
+          },
+        },
+        oauthAccessToken
+      );
+      console.log("Status:", updateRes.status);
+
+      console.log(`\n[6.7] MCP tools/call search_records for 'Verified'...`);
+      const searchRes = await postMcp(
+        {
+          jsonrpc: "2.0",
+          id: 8,
+          method: "tools/call",
+          params: {
+            name: "search_records",
+            arguments: { query: "Verified" },
+          },
+        },
+        oauthAccessToken
+      );
+      console.log("Status:", searchRes.status);
+
+      console.log(`\n[6.8] MCP tools/call delete_record for ${recordId}...`);
+      const delRes = await postMcp(
+        {
+          jsonrpc: "2.0",
+          id: 9,
+          method: "tools/call",
+          params: { name: "delete_record", arguments: { recordId } },
+        },
+        oauthAccessToken
+      );
+      console.log("Status:", delRes.status);
+      recordDeleted = true;
+    }
+  } finally {
+    // Guaranteed cleanup if creation succeeded but delete failed or threw earlier
+    if (recordId && !recordDeleted) {
+      console.log(`\n[CleanUp] Ensuring record ${recordId} is deleted from Neon...`);
+      try {
+        await postMcp(
+          {
+            jsonrpc: "2.0",
+            id: 99,
+            method: "tools/call",
+            params: { name: "delete_record", arguments: { recordId } },
+          },
+          oauthAccessToken
+        );
+      } catch (cleanupErr) {
+        console.warn("Cleanup warning:", cleanupErr);
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------

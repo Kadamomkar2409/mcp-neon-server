@@ -12,7 +12,9 @@ export function getDbClient(): NeonHttpDatabase<typeof schema> {
   }
 
   const env = getEnv();
-  const sql = neon(env.DATABASE_URL);
+  const dbUrl =
+    (env.NODE_ENV === "test" && env.TEST_DATABASE_URL) || env.DATABASE_URL;
+  const sql = neon(dbUrl);
   dbInstance = drizzle(sql, { schema });
   return dbInstance;
 }
@@ -29,7 +31,9 @@ export async function checkDatabaseHealth(timeoutMs: number = 5000): Promise<{
   const startTime = Date.now();
   try {
     const env = getEnv();
-    const sql = neon(env.DATABASE_URL);
+    const dbUrl =
+      (env.NODE_ENV === "test" && env.TEST_DATABASE_URL) || env.DATABASE_URL;
+    const sql = neon(dbUrl);
 
     // Timeout protection
     const timeoutPromise = new Promise<never>((_, reject) => {
