@@ -1,0 +1,86 @@
+# Database Schema Documentation
+
+This document describes the PostgreSQL database schema managed via Drizzle ORM and deployed to Neon PostgreSQL.
+
+## Entity-Relationship (ER) Diagram
+
+```mermaid
+erDiagram
+    users ||--o{ records : "owns"
+    users ||--o{ audit_logs : "initiates"
+
+    users {
+        uuid id PK "default: gen_random_uuid()"
+        varchar(255) name "User full name"
+        varchar(255) email UK "Unique email address"
+        timestamptz created_at "default: now()"
+        timestamptz updated_at "default: now()"
+    }
+
+    records {
+        uuid id PK "default: gen_random_uuid()"
+        uuid user_id FK "References users.id ON DELETE CASCADE"
+        varchar(255) title "Record title (indexed)"
+        text description "Optional description"
+        jsonb metadata "Arbitrary structured JSON metadata"
+        timestamptz created_at "default: now() (indexed)"
+        timestamptz updated_at "default: now()"
+    }
+
+    audit_logs {
+        uuid id PK "default: gen_random_uuid()"
+        uuid user_id FK "References users.id ON DELETE SET NULL"
+        varchar(100) tool_name "MCP Tool invoked (indexed)"
+        varchar(100) action "Action performed"
+        varchar(50) status "SUCCESS | FAILURE | UNAUTHORIZED"
+        jsonb details "Context / parameters / error summary"
+        timestamptz created_at "default: now() (indexed)"
+    }
+```
+
+## Table Specifications
+
+### 1. `users`
+- **Primary Key**: `id` (`UUID`, generated via `gen_random_uuid()`)
+- **Attributes**:
+  - `name`: `VARCHAR(255)` NOT NULL
+  - `email`: `VARCHAR(255)` UNIQUE NOT NULL
+  - `created_at`: `TIMESTAMPTZ` NOT NULL DEFAULT `now()`
+  - `updated_at`: `TIMESTAMPTZ` NOT NULL DEFAULT `now()`
+- **Indexes**:
+  - `users_email_idx` on `(email)`
+  - `users_created_at_idx` on `(created_at)`
+
+### 2. `records`
+- **Primary Key**: `id` (`UUID`, generated via `gen_random_uuid()`)
+- **Foreign Keys**:
+  - `user_id` -> `users.id` (`ON DELETE CASCADE`)
+- **Attributes**:
+  - `title`: `VARCHAR(255)` NOT NULL
+  - `description`: `TEXT` NULL
+  - `metadata`: `JSONB` NOT NULL DEFAULT `'{}'`
+  - `created_at`: `TIMESTAMPTZ` NOT NULL DEFAULT `now()`
+  - `updated_at`: `TIMESTAMPTZ` NOT NULL DEFAULT `now()`
+- **Indexes**:
+  - `records_user_id_idx` on `(user_id)`
+  - `records_created_at_idx` on `(created_at)`
+  - `records_title_idx` on `(title)`
+
+### 3. `audit_logs`
+- **Primary Key**: `id` (`UUID`, generated via `gen_random_uuid()`)
+- **Foreign Keys**:
+  - `user_id` -> `users.id` (`ON DELETE SET NULL`)
+- **Attributes**:
+  - `tool_name`: `VARCHAR(100)` NOT NULL
+  - `action`: `VARCHAR(100)` NOT NULL
+  - `status`: `VARCHAR(50)` NOT NULL
+  - `details`: `JSONB` NULL
+  - `created_at`: `TIMESTAMPTZ` NOT NULL DEFAULT `now()`
+- **Indexes**:
+  - `audit_logs_user_id_idx` on `(user_id)`
+  - `audit_logs_tool_name_idx` on `(tool_name)`
+  - `audit_logs_created_at_idx` on `(created_at)`
+
+## Multi-Tenancy & Authorization Security Rule
+All records are strictly scoped by `user_id`. The service layer validates ownership on every operation (reading, listing, searching, updating, deleting), ensuring users can never access or modify records belonging to other users.
+
